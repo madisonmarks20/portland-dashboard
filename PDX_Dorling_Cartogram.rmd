@@ -1,0 +1,153 @@
+---
+title: "Lab-04"
+output:
+  html_document:
+    theme: readable
+    highlight: tango
+    toc: true
+    self_contained: false
+    number_sections: false
+    css: textbook.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=T, fig.width=10, fig.height=6, warning=F, message=F )
+```
+
+```{r}
+library( dplyr )
+library( tidycensus )
+library( sp )
+library(tigris)
+library( cartogram )
+library( sf )
+library( tmap )
+library( geojsonio )
+```
+
+
+```{r}
+census_api_key("85e2a7edeb3f23962026aae115c869af1e7c58bf")
+```
+
+```{r}
+pdx.pop1 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Multnomah", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( POP=estimate )
+
+pdx.pop2 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Clackamas", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( POP=estimate )
+
+pdx.pop3 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Washington", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( POP=estimate )
+
+pdx.pop <- rbind( pdx.pop1, pdx.pop2, pdx.pop3  )
+```
+
+```{r}
+pdx.mhhi1 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Multnomah", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( MHHI=estimate )
+
+pdx.mhhi2 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Clackamas", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( MHHI=estimate )
+
+pdx.mhhi3 <-
+get_acs( geography = "tract", variables = "B01003_001",
+         state = "OR", county = "Washington", geometry = FALSE ) %>% 
+         select( GEOID, estimate ) %>%
+         rename( MHHI=estimate )
+
+pdx.mhhi <- rbind( pdx.mhhi1, pdx.mhhi2, pdx.mhhi3  )
+```
+
+```{r}
+pdx.1 <- tracts( state="OR", county="Multnomah", cb=TRUE, year=2015 )
+
+pdx.2 <- tracts( state="OR", county="Clackamas", cb=TRUE, year=2015 )
+
+pdx.3 <- tracts( state="OR", county="Washington", cb=TRUE, year=2015 )
+
+pdx <- rbind( pdx.1,pdx.2,pdx.3 )
+pdx <- as(pdx, "Spatial")
+```
+
+
+```{r}
+
+pdx <- merge(pdx, pdx.pop, by = "GEOID")
+pdx <- merge(pdx, pdx.mhhi, by = "GEOID")
+
+```
+
+
+```{r}
+
+URL1 <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-2000.rds"
+d1 <- readRDS( gzcon( url( URL1 ) ) )
+
+URL2 <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-2010.rds"
+d2 <- readRDS( gzcon( url( URL2 ) ) )
+
+URLmd <- "https://github.com/DS4PS/cpp-529-fall-2020/raw/main/LABS/data/rodeo/LTDB-META-DATA.rds"
+md <- readRDS( gzcon( url( URLmd ) ) )
+
+d1 <- select( d1, - year )
+d2 <- select( d2, - year )
+
+d <- merge( d1, d2, by="tractid" )
+d <- merge( d, md, by="tractid" )
+
+x <- d$tractid
+
+x <- gsub( "fips", "", x )
+x <- gsub( "-", "", x )
+
+x <- as.numeric( x )
+
+d$tractid2 <- x 
+
+pdx <- merge( pdx, d, by.x="GEOID", by.y="tractid", all.x=T )
+
+```
+
+
+```{r}
+plot( pdx )
+```
+```{r}
+pdx <- spTransform( pdx, CRS("+init=epsg:3395"))
+pdx <- pdx[ pdx$POP != 0 & (! is.na( pdx$POP )) , ]
+```
+
+```{r}
+pdx$pop.w <- pdx$POP / 10000   # standardizes it to max of 1.5
+pdx_dorling <- cartogram_dorling( x=pdx, weight="pop.w", k=0.03 )
+
+plot( pdx_dorling )
+```
+
+```{r}
+pdx_dorling_sf <- st_as_sf( pdx_dorling )
+
+tm_shape( pdx_dorling_sf ) + 
+  tm_polygons( size="POP", col="MHHI", n=7, style="quantile", palette="Spectral" ) 
+```
+```{r}
+pdx_dorling <- spTransform( pdx_dorling, CRS("+proj=longlat +datum=WGS84") )
+geojson_write( pdx_dorling, file="pdx_dorling.geojson", geometry="polygon" )
+```
+
